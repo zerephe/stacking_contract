@@ -147,7 +147,6 @@ describe("DemirBank staking", function () {
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      //claim and check
       await expect(stakeInstance.unstake()).to.be.revertedWith("Nothing to unstake mf!");
     });
 
@@ -155,11 +154,9 @@ describe("DemirBank staking", function () {
       await lpToken._mint(addrBank[0].address, 1000);
       await lpToken.approve(stakeInstance.address, 1000);
       
-      //stake some tokens
       await stakeInstance.stake(1000);
       expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
 
-      //unstake and check
       await expect(stakeInstance.claim()).to.be.revertedWith("Too soon to claim reward mf!");
     });
 
@@ -168,7 +165,6 @@ describe("DemirBank staking", function () {
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      //claim and check
       await expect(stakeInstance.claim()).to.be.revertedWith("You are not a staker mf!");
     });
 
@@ -176,7 +172,6 @@ describe("DemirBank staking", function () {
       await lpToken._mint(addrBank[0].address, 1000);
       await lpToken.approve(stakeInstance.address, 1000);
       
-      //stake some tokens
       await stakeInstance.stake(1000);
       expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
       await stakeInstance.setLockTime(1, 2);
@@ -186,7 +181,6 @@ describe("DemirBank staking", function () {
 
       await stakeInstance.claim();
 
-      //unstake and check
       await expect(stakeInstance.claim()).to.be.revertedWith("Nothing to claim mf!");
     });
   });
