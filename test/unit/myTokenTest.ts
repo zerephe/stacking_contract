@@ -2,29 +2,52 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { Contract } from "ethers";
+import { Address } from "cluster";
 
 describe("DemirBank staking", function () {
 
   let stakeInstance: Contract;
   let lpToken: Contract;
   let tokenVLC: Contract;
+  let router: Contract;
+  let factory: Contract;
 
-  let addrBank: SignerWithAddress[];
-  let zeroAddress: String = ethers.constants.AddressZero;
+  let owner: SignerWithAddress;
+  let staker1: SignerWithAddress;
+  let staker2: SignerWithAddress;
+
   
-  beforeEach(async function(){
-    // Getting ContractFactory and Signers
-
-    const Token0 = await ethers.getContractFactory("VolkovCoin");
-    lpToken = await Token0.deploy("UniV2", "LP");
-    await lpToken.deployed();
-
+  before(async function() {
     const Token1 = await ethers.getContractFactory("VolkovCoin");
-    tokenVLC = await Token1.deploy("VolkovToken", "VLC");
+    [owner, staker1, staker2] = await ethers.getSigners();
+    tokenVLC = await Token1.deploy("VolkovCoin", "VLC");
     await tokenVLC.deployed();
 
+    //Univ2 connction atempt
+    router = (await ethers.getContractAt("IUniswapV2Router02", process.env.ROUTER2_ADDRESS as string));
+    factory = (await ethers.getContractAt("IUniswapV2Factory", process.env.FACTORY_ADDRESS as string));
+
+    await tokenVLC._mint(staker1.address, ethers.utils.parseUnits("1000", await tokenVLC.decimals()));
+    await tokenVLC.connect(staker1).approve(router.address, ethers.constants.MaxUint256);
+
+    let deadline = new Date().getTime();
+
+    await router.connect(staker1).addLiquidityETH(
+      tokenVLC.address,
+      ethers.utils.parseUnits("1000", await tokenVLC.decimals()),
+      0,
+      ethers.utils.parseEther("1"),
+      staker1.address,
+      deadline, {value: ethers.utils.parseEther("1")}
+    );
+  });
+
+  beforeEach(async function(){
+    // Getting ContractFactory and Signers
+    const pairAddress = await factory.getPair(process.env.WETH_ADDRESS, tokenVLC.address);
+    lpToken = await ethers.getContractAt("IUniswapV2Pair", pairAddress);
+
     const Token = await ethers.getContractFactory("DemirBank");
-    addrBank = await ethers.getSigners();
     stakeInstance = await Token.deploy(lpToken.address, tokenVLC.address);
     await stakeInstance.deployed();
   });
@@ -61,23 +84,21 @@ describe("DemirBank staking", function () {
     });
 
     it("Should be some staked tokens", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
       //stake some tokens
-      await stakeInstance.stake(1000);
+      await stakeInstance.connect(staker1).stake(1000);
 
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
-      expect(await lpToken.balanceOf(stakeInstance.address)).to.eq(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
+      expect(await lpToken.connect(staker1).balanceOf(stakeInstance.address)).to.eq(1000);
     });
 
     it("Should be able to unstake and then claim", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
       //stake some tokens
-      await stakeInstance.stake(1000);
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
+      await stakeInstance.connect(staker1).stake(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
       await stakeInstance.setLockTime(1, 2);
 
       //mint some reward tokens
@@ -86,17 +107,16 @@ describe("DemirBank staking", function () {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       //unstake and check
-      await stakeInstance.unstake();
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(0);
+      await stakeInstance.connect(staker1).unstake();
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(0);
     });
     
     it("Should be able to claim and then unstake", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
       //stake some tokens
-      await stakeInstance.stake(1000);
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
+      await stakeInstance.connect(staker1).stake(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
       await stakeInstance.setLockTime(1, 2);
 
       //mint some reward tokens
@@ -105,18 +125,18 @@ describe("DemirBank staking", function () {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       //unstake and check
-      await stakeInstance.claim();
-      await stakeInstance.unstake();
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(0);
+      await stakeInstance.connect(staker1).claim();
+      await stakeInstance.connect(staker1).unstake();
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(0);
     });
 
     it("Should be claimable", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      let balance: number = +(await tokenVLC.balanceOf(staker1.address));
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
       //stake some tokens
-      await stakeInstance.stake(1000);
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
+      await stakeInstance.connect(staker1).stake(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
       await stakeInstance.setLockTime(1, 2);
       await stakeInstance.setReward(50);
 
@@ -126,20 +146,19 @@ describe("DemirBank staking", function () {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       //claim and check
-      await stakeInstance.claim();
-      expect(await tokenVLC.balanceOf(addrBank[0].address)).to.eq(500);
+      await stakeInstance.connect(staker1).claim();
+      expect(await tokenVLC.balanceOf(staker1.address)).to.eq(balance + 500);
     });
 
     it("Should revert with too soon to unstake", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
       //stake some tokens
-      await stakeInstance.stake(1000);
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
+      await stakeInstance.connect(staker1).stake(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
 
       //unstake and check
-      await expect(stakeInstance.unstake()).to.be.revertedWith("Too soon to unstake mf!");
+      await expect(stakeInstance.connect(staker1).unstake()).to.be.revertedWith("Too soon to unstake mf!");
     });
 
     it("Should revert with nothing to unstake", async function() {
@@ -147,17 +166,16 @@ describe("DemirBank staking", function () {
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      await expect(stakeInstance.unstake()).to.be.revertedWith("Nothing to unstake mf!");
+      await expect(stakeInstance.connect(staker1).unstake()).to.be.revertedWith("Nothing to unstake mf!");
     });
 
     it("Should revert with too soon to claim", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
-      await stakeInstance.stake(1000);
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
+      await stakeInstance.connect(staker1).stake(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
 
-      await expect(stakeInstance.claim()).to.be.revertedWith("Too soon to claim reward mf!");
+      await expect(stakeInstance.connect(staker1).claim()).to.be.revertedWith("Too soon to claim reward mf!");
     });
 
     it("Should revert if not a staker", async function() {
@@ -165,23 +183,22 @@ describe("DemirBank staking", function () {
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      await expect(stakeInstance.claim()).to.be.revertedWith("You are not a staker mf!");
+      await expect(stakeInstance.connect(staker1).claim()).to.be.revertedWith("You are not a staker mf!");
     });
 
     it("Should revert with nothing to claim", async function() {
-      await lpToken._mint(addrBank[0].address, 1000);
-      await lpToken.approve(stakeInstance.address, 1000);
+      await lpToken.connect(staker1).approve(stakeInstance.address, ethers.utils.parseUnits("0.001", await lpToken.decimals()));
       
-      await stakeInstance.stake(1000);
-      expect(await stakeInstance.getStakeAmount(addrBank[0].address)).to.eq(1000);
+      await stakeInstance.connect(staker1).stake(1000);
+      expect(await stakeInstance.connect(staker1).getStakeAmount(staker1.address)).to.eq(1000);
       await stakeInstance.setLockTime(1, 2);
       await tokenVLC._mint(stakeInstance.address, 10000);
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      await stakeInstance.claim();
+      await stakeInstance.connect(staker1).claim();
 
-      await expect(stakeInstance.claim()).to.be.revertedWith("Nothing to claim mf!");
+      await expect(stakeInstance.connect(staker1).claim()).to.be.revertedWith("Nothing to claim mf!");
     });
   });
 });
